@@ -1,0 +1,3007 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from document_processor import DocumentProcessor
+from rag_engine import MultiPaperRAG
+import os
+import time
+
+# Page config
+st.set_page_config(
+    page_title="Multi Research Paper Comparison",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS with COMPLETELY SEPARATE themes
+st.markdown("""
+<style>
+    /* ===== DARK THEME - COMPLETELY UNTOUCHED ===== */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #1e293b;
+            --text-primary: #ffffff;
+            --text-secondary: #f1f5f9;
+            --text-light: #cbd5e1;
+            --border-soft: #334155;
+            --primary: #4361ee;
+            --primary-light: #4895ef;
+            --primary-soft: #4cc9f0;
+            --secondary: #3f37c9;
+            --accent: #7209b7;
+            --success: #059669;
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            --gradient-2: linear-gradient(135deg, #3a0ca3 0%, #4361ee 50%, #4895ef 100%);
+            --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .stApp {
+            background: var(--bg-main) !important;
+        }
+        
+        .main-header h1 {
+            color: white !important;
+        }
+        
+        h1, h2, h3, h4, h5, h6, p, li, span, div,
+        .stMarkdown, .stText, label,
+        .stTextInput label, .stTextArea label, 
+        .stMultiSelect label, .stFileUploader label {
+            color: var(--text-primary) !important;
+        }
+        
+        .stTextInput input, .stTextArea textarea {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stFileUploader > div {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        section[data-testid="stSidebar"] {
+            background: var(--bg-sidebar) !important;
+        }
+        
+        .streamlit-expanderHeader {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .dataframe {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stAlert {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .metric-card {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .theme-item {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .footer p {
+            color: white !important;
+        }
+    }
+    
+    /* ===== LIGHT THEME - BRAND NEW, COMPLETELY SEPARATE ===== */
+    @media (prefers-color-scheme: light) {
+        /* Main app background - pure white */
+        .stApp {
+            background: #ffffff !important;
+        }
+        
+        /* ALL text black */
+        * {
+            color: #000000 !important;
+        }
+        
+        /* Override for elements that need to stay white */
+        .stButton button, 
+        .stButton button *,
+        .dataframe th,
+        .dataframe th *,
+        .stTabs [aria-selected="true"],
+        .stTabs [aria-selected="true"] *,
+        .main-header h1,
+        .main-header p,
+        .main-header *,
+        .footer p,
+        .footer * {
+            color: white !important;
+        }
+        
+        /* Main content background - white */
+        .main, .block-container {
+            background: #ffffff !important;
+        }
+        
+        /* Sidebar - light gray background */
+        section[data-testid="stSidebar"] {
+            background: #f8fafc !important;
+        }
+        
+        section[data-testid="stSidebar"] > div {
+            background: #f8fafc !important;
+        }
+        
+        /* Sidebar text - black */
+        section[data-testid="stSidebar"] * {
+            color: #000000 !important;
+        }
+        
+        /* Headers */
+        h2 {
+            color: #000000 !important;
+            font-weight: 600 !important;
+            font-size: 2rem !important;
+            margin: 1.5rem 0 1rem 0 !important;
+            position: relative;
+        }
+        
+        h2:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            border-radius: 2px;
+        }
+        
+        /* Input fields */
+        .stTextInput input, .stTextArea textarea {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 1rem !important;
+        }
+        
+        .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+            color: #9ca3af !important;
+        }
+        
+        /* Multi-select */
+        .stMultiSelect div[data-baseweb="select"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] span {
+            color: #000000 !important;
+        }
+        
+        /* File uploader */
+        .stFileUploader > div {
+            background: #ffffff !important;
+            border: 1px dashed #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] {
+            background: #ffffff !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] p {
+            color: #6b7280 !important;
+        }
+        
+        .stFileUploader button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Uploaded files */
+        .stFileUploader [data-testid="stFileUploaderFile"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderFile"] span {
+            color: #000000 !important;
+        }
+        
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .streamlit-expanderContent {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem !important;
+        }
+        
+        /* Dataframe */
+        .dataframe {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            overflow: hidden;
+        }
+        
+        .dataframe th {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            padding: 0.75rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .dataframe td {
+            color: #000000 !important;
+            border-bottom: 1px solid #d1d5db !important;
+            padding: 0.75rem !important;
+        }
+        
+        /* Alerts */
+        .stAlert {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-left: 4px solid #4361ee !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+        }
+        
+        .stAlert p {
+            color: #000000 !important;
+        }
+        
+        .stSuccess {
+            border-left-color: #059669 !important;
+        }
+        
+        .stWarning {
+            border-left-color: #f59e0b !important;
+        }
+        
+        .stInfo {
+            border-left-color: #4361ee !important;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 50px !important;
+            padding: 0.25rem;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #4b5563 !important;
+            font-weight: 500 !important;
+            padding: 0.5rem 1.5rem !important;
+            border-radius: 50px !important;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .metric-card h3 {
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            color: #4361ee !important;
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Theme items */
+        .theme-item {
+            background: #ffffff !important;
+            color: #4361ee !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .theme-item:hover {
+            border-color: #4361ee !important;
+            box-shadow: 0 2px 8px rgba(67, 97, 238, 0.1) !important;
+        }
+        
+        /* Dropdowns */
+        div[role="listbox"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        li[role="option"] {
+            color: #000000 !important;
+            background: #ffffff !important;
+        }
+        
+        li[role="option"]:hover {
+            background: #f3f4f6 !important;
+        }
+        
+        /* Selected tags */
+        span[data-baseweb="tag"] {
+            background: #eef2ff !important;
+            color: #4361ee !important;
+            border: none !important;
+            border-radius: 50px !important;
+        }
+        
+        /* Code blocks */
+        .stCode {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100%;
+        }
+        
+        /* Progress bar */
+        .stProgress > div {
+            background: #e2e8f0 !important;
+        }
+        
+        .stProgress > div > div {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+        }
+    }
+    
+    /* ===== GLOBAL STYLES (shared) ===== */
+    .main-header {
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        padding: 3rem 2rem;
+        border-radius: 30px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 50%);
+        animation: rotate 20s linear infinite;
+    }
+    
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .main-header h1 {
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 2.8rem !important;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.95) !important;
+        font-size: 1.3rem !important;
+        font-weight: 300;
+        max-width: 700px;
+        margin: 0 auto;
+        position: relative;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        color: white !important;
+        border-top: none;
+        margin-top: 3rem;
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        border-radius: 30px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    }
+    
+    .footer p {
+        color: white !important;
+        font-size: 0.95rem;
+    }
+    
+    .footer p:last-child {
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-size: 0.9rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'rag' not in st.session_state:
+    with st.spinner("Loading RAG engine (first time only)..."):
+        st.session_state.rag = MultiPaperRAG()
+if 'processor' not in st.session_state:
+    st.session_state.processor = DocumentProcessor()
+if 'papers_loaded' not in st.session_state:
+    st.session_state.papers_loaded = False
+
+# Beautiful header with animation
+st.markdown("""
+<div class="main-header">
+    <h1>Multi Research Paper Comparison</h1>
+    <p>Compare, analyze, and understand multiple research papers with AI-powered semantic search</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar
+with st.sidebar:
+    st.markdown("## Paper Management")
+    
+    # Create papers folder if it doesn't exist
+    if not os.path.exists("papers"):
+        os.makedirs("papers")
+        st.info("Created 'papers' folder. Add your PDFs there.")
+    
+    # Show folder path
+    st.code("Place PDFs in: " + os.path.abspath("papers"))
+    
+    # Upload files directly
+    uploaded_files = st.file_uploader(
+        "Upload PDFs here:",
+        type=['pdf'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Save uploaded file
+            filepath = os.path.join("papers", uploaded_file.name)
+            with open(filepath, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"Uploaded: {uploaded_file.name}")
+    
+    # Load papers button
+    if st.button("Load/Reload All Papers", type="primary", use_container_width=True):
+        with st.spinner("Processing papers..."):
+            # Process all PDFs
+            papers = st.session_state.processor.process_papers_folder("papers")
+            
+            if papers:
+                progress_bar = st.progress(0)
+                for i, (filename, text, metadata) in enumerate(papers):
+                    # Add to RAG
+                    num_chunks = st.session_state.rag.add_paper(
+                        text, 
+                        filename, 
+                        metadata
+                    )
+                    progress_bar.progress((i + 1) / len(papers))
+                
+                st.session_state.papers_loaded = True
+                st.success(f"Loaded {len(papers)} papers successfully!")
+            else:
+                st.warning("No PDFs found in the papers folder")
+    
+    # Show loaded papers
+    st.markdown("---")
+    st.markdown("### Loaded Papers")
+    all_papers = st.session_state.rag.get_all_papers()
+    if all_papers:
+        for paper in all_papers:
+            st.markdown(f"• {paper}")
+    else:
+        st.info("No papers loaded yet")
+
+# Main content area
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Compare Papers", 
+    "Paper Statistics", 
+    "Semantic Search",
+    "Common Themes"
+])
+
+# Tab 1: Compare Papers
+with tab1:
+    st.header("Compare Papers")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        query = st.text_area(
+            "What would you like to compare?",
+            placeholder="e.g., Compare the methodology used in these papers, or analyze the differences in their approaches...",
+            height=120
+        )
+    
+    with col2:
+        all_papers = st.session_state.rag.get_all_papers()
+        selected_papers = st.multiselect(
+            "Select papers to compare",
+            options=all_papers,
+            default=all_papers[:2] if len(all_papers) >= 2 else all_papers
+        )
+    
+    if st.button("Compare Papers", type="primary", use_container_width=True):
+        if query and selected_papers:
+            with st.spinner("Analyzing and comparing papers..."):
+                comparison = st.session_state.rag.compare_papers(query, selected_papers)
+                
+                # Display results
+                st.subheader("Comparison Results")
+                
+                # Create comparison table
+                data = []
+                for paper, details in comparison['papers'].items():
+                    data.append({
+                        'Paper': paper,
+                        'Relevant Sections': details['relevant_chunks'],
+                        'Relevance Score': f"{1 - details['avg_relevance']:.2%}" if details['avg_relevance'] < 1 else "N/A"
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+                
+                # Show top passages from each paper
+                st.subheader("Key Passages")
+                
+                cols = st.columns(len(selected_papers))
+                for i, (paper, details) in enumerate(comparison['papers'].items()):
+                    with cols[i]:
+                        st.markdown(f"**{paper}**")
+                        for j, passage in enumerate(details['top_passages'][:2]):
+                            with st.expander(f"Passage {j+1}"):
+                                st.write(passage[:400] + "..." if len(passage) > 400 else passage)
+        else:
+            st.warning("Please enter a query and select papers to compare")
+
+# Tab 2: Paper Statistics
+with tab2:
+    st.header("Paper Statistics")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    
+    if all_papers:
+        stats = []
+        for paper in all_papers:
+            paper_stats = st.session_state.rag.get_paper_summary_stats(paper)
+            if paper_stats:
+                stats.append(paper_stats)
+        
+        if stats:
+            df = pd.DataFrame(stats)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Papers</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(len(df)), unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Avg Chunks per Paper</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(int(df['num_chunks'].mean())), unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Words</h3>
+                    <div class="metric-value">{:,}</div>
+                </div>
+                """.format(int(df['total_words'].sum())), unsafe_allow_html=True)
+            
+            # Bar chart
+            fig = px.bar(
+                df, 
+                x='paper', 
+                y='num_chunks',
+                title="Number of Chunks per Paper",
+                labels={'paper': 'Paper', 'num_chunks': 'Number of Chunks'},
+                color_discrete_sequence=['#4361ee']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#000000',
+                title_font_size=20,
+                title_font_color='#000000',
+                showlegend=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Detailed table
+            st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Load papers first to see statistics")
+
+# Tab 3: Semantic Search
+with tab3:
+    st.header("Semantic Search Across All Papers")
+    
+    search_query = st.text_input("Enter your search query:", placeholder="e.g., attention mechanism, transformer architecture, BERT pretraining...")
+    
+    if search_query:
+        with st.spinner("Searching through all papers..."):
+            results = st.session_state.rag.retrieve_similar_chunks(search_query, n_results=10)
+            
+            if results:
+                st.success(f"Found {len(results)} relevant passages")
+                
+                for i, result in enumerate(results):
+                    paper_name = result['metadata'].get('paper_name', 'Unknown')
+                    relevance = 1 - result['distance']
+                    with st.expander(f"{paper_name} — Relevance: {relevance:.1%}"):
+                        st.write(result['text'])
+                        chunk_idx = result['metadata'].get('chunk_index', 0) + 1
+                        total_chunks = result['metadata'].get('total_chunks', 0)
+                        st.caption(f"Chunk {chunk_idx} of {total_chunks}")
+            else:
+                st.info("No results found. Try a different query.")
+
+# Tab 4: Common Themes
+with tab4:
+    st.header("Common Themes Across Papers")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    selected_for_themes = st.multiselect(
+        "Select papers to analyze for common themes",
+        options=all_papers,
+        default=all_papers
+    )
+    
+    if selected_for_themes and st.button("Discover Common Themes", type="primary", use_container_width=True):
+        with st.spinner("Analyzing papers to find common themes..."):
+            themes = st.session_state.rag.find_common_themes(selected_for_themes, top_k=12)
+            
+            st.subheader("Top Common Themes")
+            
+            # Display themes in a beautiful grid
+            cols = st.columns(3)
+            for i, theme in enumerate(themes):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="theme-item">
+                        {theme}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# Blue Footer
+st.markdown("""
+<div class="footer">
+    <p>Multi Research Paper Comparison System | Powered by Sentence Transformers + ChromaDB</p>
+    <p style="font-size: 0.9rem;">Intelligent research paper analysis with semantic understanding</p>
+</div>
+""", unsafe_allow_html=True)
+EOFcat > app.py << 'EOF'
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from document_processor import DocumentProcessor
+from rag_engine import MultiPaperRAG
+import os
+import time
+
+# Page config
+st.set_page_config(
+    page_title="Multi Research Paper Comparison",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS with COMPLETELY SEPARATE themes
+st.markdown("""
+<style>
+    /* ===== DARK THEME - COMPLETELY UNTOUCHED ===== */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #1e293b;
+            --text-primary: #ffffff;
+            --text-secondary: #f1f5f9;
+            --text-light: #cbd5e1;
+            --border-soft: #334155;
+            --primary: #4361ee;
+            --primary-light: #4895ef;
+            --primary-soft: #4cc9f0;
+            --secondary: #3f37c9;
+            --accent: #7209b7;
+            --success: #059669;
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            --gradient-2: linear-gradient(135deg, #3a0ca3 0%, #4361ee 50%, #4895ef 100%);
+            --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .stApp {
+            background: var(--bg-main) !important;
+        }
+        
+        .main-header h1 {
+            color: white !important;
+        }
+        
+        h1, h2, h3, h4, h5, h6, p, li, span, div,
+        .stMarkdown, .stText, label,
+        .stTextInput label, .stTextArea label, 
+        .stMultiSelect label, .stFileUploader label {
+            color: var(--text-primary) !important;
+        }
+        
+        .stTextInput input, .stTextArea textarea {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stFileUploader > div {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        section[data-testid="stSidebar"] {
+            background: var(--bg-sidebar) !important;
+        }
+        
+        .streamlit-expanderHeader {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .dataframe {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stAlert {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .metric-card {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .theme-item {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .footer p {
+            color: white !important;
+        }
+    }
+    
+    /* ===== LIGHT THEME - BRAND NEW, COMPLETELY SEPARATE ===== */
+    @media (prefers-color-scheme: light) {
+        /* Main app background - pure white */
+        .stApp {
+            background: #ffffff !important;
+        }
+        
+        /* ALL text black */
+        * {
+            color: #000000 !important;
+        }
+        
+        /* Override for elements that need to stay white */
+        .stButton button, 
+        .stButton button *,
+        .dataframe th,
+        .dataframe th *,
+        .stTabs [aria-selected="true"],
+        .stTabs [aria-selected="true"] *,
+        .main-header h1,
+        .main-header p,
+        .main-header *,
+        .footer p,
+        .footer * {
+            color: white !important;
+        }
+        
+        /* Main content background - white */
+        .main, .block-container {
+            background: #ffffff !important;
+        }
+        
+        /* Sidebar - light gray background */
+        section[data-testid="stSidebar"] {
+            background: #f8fafc !important;
+        }
+        
+        section[data-testid="stSidebar"] > div {
+            background: #f8fafc !important;
+        }
+        
+        /* Sidebar text - black */
+        section[data-testid="stSidebar"] * {
+            color: #000000 !important;
+        }
+        
+        /* Headers */
+        h2 {
+            color: #000000 !important;
+            font-weight: 600 !important;
+            font-size: 2rem !important;
+            margin: 1.5rem 0 1rem 0 !important;
+            position: relative;
+        }
+        
+        h2:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            border-radius: 2px;
+        }
+        
+        /* Input fields */
+        .stTextInput input, .stTextArea textarea {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 1rem !important;
+        }
+        
+        .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+            color: #9ca3af !important;
+        }
+        
+        /* Multi-select */
+        .stMultiSelect div[data-baseweb="select"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] span {
+            color: #000000 !important;
+        }
+        
+        /* File uploader */
+        .stFileUploader > div {
+            background: #ffffff !important;
+            border: 1px dashed #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] {
+            background: #ffffff !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] p {
+            color: #6b7280 !important;
+        }
+        
+        .stFileUploader button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Uploaded files */
+        .stFileUploader [data-testid="stFileUploaderFile"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderFile"] span {
+            color: #000000 !important;
+        }
+        
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .streamlit-expanderContent {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem !important;
+        }
+        
+        /* Dataframe */
+        .dataframe {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            overflow: hidden;
+        }
+        
+        .dataframe th {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            padding: 0.75rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .dataframe td {
+            color: #000000 !important;
+            border-bottom: 1px solid #d1d5db !important;
+            padding: 0.75rem !important;
+        }
+        
+        /* Alerts */
+        .stAlert {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-left: 4px solid #4361ee !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+        }
+        
+        .stAlert p {
+            color: #000000 !important;
+        }
+        
+        .stSuccess {
+            border-left-color: #059669 !important;
+        }
+        
+        .stWarning {
+            border-left-color: #f59e0b !important;
+        }
+        
+        .stInfo {
+            border-left-color: #4361ee !important;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 50px !important;
+            padding: 0.25rem;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #4b5563 !important;
+            font-weight: 500 !important;
+            padding: 0.5rem 1.5rem !important;
+            border-radius: 50px !important;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .metric-card h3 {
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            color: #4361ee !important;
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Theme items */
+        .theme-item {
+            background: #ffffff !important;
+            color: #4361ee !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .theme-item:hover {
+            border-color: #4361ee !important;
+            box-shadow: 0 2px 8px rgba(67, 97, 238, 0.1) !important;
+        }
+        
+        /* Dropdowns */
+        div[role="listbox"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        li[role="option"] {
+            color: #000000 !important;
+            background: #ffffff !important;
+        }
+        
+        li[role="option"]:hover {
+            background: #f3f4f6 !important;
+        }
+        
+        /* Selected tags */
+        span[data-baseweb="tag"] {
+            background: #eef2ff !important;
+            color: #4361ee !important;
+            border: none !important;
+            border-radius: 50px !important;
+        }
+        
+        /* Code blocks */
+        .stCode {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100%;
+        }
+        
+        /* Progress bar */
+        .stProgress > div {
+            background: #e2e8f0 !important;
+        }
+        
+        .stProgress > div > div {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+        }
+    }
+    
+    /* ===== GLOBAL STYLES (shared) ===== */
+    .main-header {
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        padding: 3rem 2rem;
+        border-radius: 30px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 50%);
+        animation: rotate 20s linear infinite;
+    }
+    
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .main-header h1 {
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 2.8rem !important;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.95) !important;
+        font-size: 1.3rem !important;
+        font-weight: 300;
+        max-width: 700px;
+        margin: 0 auto;
+        position: relative;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        color: white !important;
+        border-top: none;
+        margin-top: 3rem;
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        border-radius: 30px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    }
+    
+    .footer p {
+        color: white !important;
+        font-size: 0.95rem;
+    }
+    
+    .footer p:last-child {
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-size: 0.9rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'rag' not in st.session_state:
+    with st.spinner("Loading RAG engine (first time only)..."):
+        st.session_state.rag = MultiPaperRAG()
+if 'processor' not in st.session_state:
+    st.session_state.processor = DocumentProcessor()
+if 'papers_loaded' not in st.session_state:
+    st.session_state.papers_loaded = False
+
+# Beautiful header with animation
+st.markdown("""
+<div class="main-header">
+    <h1>Multi Research Paper Comparison</h1>
+    <p>Compare, analyze, and understand multiple research papers with AI-powered semantic search</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar
+with st.sidebar:
+    st.markdown("## Paper Management")
+    
+    # Create papers folder if it doesn't exist
+    if not os.path.exists("papers"):
+        os.makedirs("papers")
+        st.info("Created 'papers' folder. Add your PDFs there.")
+    
+    # Show folder path
+    st.code("Place PDFs in: " + os.path.abspath("papers"))
+    
+    # Upload files directly
+    uploaded_files = st.file_uploader(
+        "Upload PDFs here:",
+        type=['pdf'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Save uploaded file
+            filepath = os.path.join("papers", uploaded_file.name)
+            with open(filepath, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"Uploaded: {uploaded_file.name}")
+    
+    # Load papers button
+    if st.button("Load/Reload All Papers", type="primary", use_container_width=True):
+        with st.spinner("Processing papers..."):
+            # Process all PDFs
+            papers = st.session_state.processor.process_papers_folder("papers")
+            
+            if papers:
+                progress_bar = st.progress(0)
+                for i, (filename, text, metadata) in enumerate(papers):
+                    # Add to RAG
+                    num_chunks = st.session_state.rag.add_paper(
+                        text, 
+                        filename, 
+                        metadata
+                    )
+                    progress_bar.progress((i + 1) / len(papers))
+                
+                st.session_state.papers_loaded = True
+                st.success(f"Loaded {len(papers)} papers successfully!")
+            else:
+                st.warning("No PDFs found in the papers folder")
+    
+    # Show loaded papers
+    st.markdown("---")
+    st.markdown("### Loaded Papers")
+    all_papers = st.session_state.rag.get_all_papers()
+    if all_papers:
+        for paper in all_papers:
+            st.markdown(f"• {paper}")
+    else:
+        st.info("No papers loaded yet")
+
+# Main content area
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Compare Papers", 
+    "Paper Statistics", 
+    "Semantic Search",
+    "Common Themes"
+])
+
+# Tab 1: Compare Papers
+with tab1:
+    st.header("Compare Papers")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        query = st.text_area(
+            "What would you like to compare?",
+            placeholder="e.g., Compare the methodology used in these papers, or analyze the differences in their approaches...",
+            height=120
+        )
+    
+    with col2:
+        all_papers = st.session_state.rag.get_all_papers()
+        selected_papers = st.multiselect(
+            "Select papers to compare",
+            options=all_papers,
+            default=all_papers[:2] if len(all_papers) >= 2 else all_papers
+        )
+    
+    if st.button("Compare Papers", type="primary", use_container_width=True):
+        if query and selected_papers:
+            with st.spinner("Analyzing and comparing papers..."):
+                comparison = st.session_state.rag.compare_papers(query, selected_papers)
+                
+                # Display results
+                st.subheader("Comparison Results")
+                
+                # Create comparison table
+                data = []
+                for paper, details in comparison['papers'].items():
+                    data.append({
+                        'Paper': paper,
+                        'Relevant Sections': details['relevant_chunks'],
+                        'Relevance Score': f"{1 - details['avg_relevance']:.2%}" if details['avg_relevance'] < 1 else "N/A"
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+                
+                # Show top passages from each paper
+                st.subheader("Key Passages")
+                
+                cols = st.columns(len(selected_papers))
+                for i, (paper, details) in enumerate(comparison['papers'].items()):
+                    with cols[i]:
+                        st.markdown(f"**{paper}**")
+                        for j, passage in enumerate(details['top_passages'][:2]):
+                            with st.expander(f"Passage {j+1}"):
+                                st.write(passage[:400] + "..." if len(passage) > 400 else passage)
+        else:
+            st.warning("Please enter a query and select papers to compare")
+
+# Tab 2: Paper Statistics
+with tab2:
+    st.header("Paper Statistics")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    
+    if all_papers:
+        stats = []
+        for paper in all_papers:
+            paper_stats = st.session_state.rag.get_paper_summary_stats(paper)
+            if paper_stats:
+                stats.append(paper_stats)
+        
+        if stats:
+            df = pd.DataFrame(stats)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Papers</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(len(df)), unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Avg Chunks per Paper</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(int(df['num_chunks'].mean())), unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Words</h3>
+                    <div class="metric-value">{:,}</div>
+                </div>
+                """.format(int(df['total_words'].sum())), unsafe_allow_html=True)
+            
+            # Bar chart
+            fig = px.bar(
+                df, 
+                x='paper', 
+                y='num_chunks',
+                title="Number of Chunks per Paper",
+                labels={'paper': 'Paper', 'num_chunks': 'Number of Chunks'},
+                color_discrete_sequence=['#4361ee']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#000000',
+                title_font_size=20,
+                title_font_color='#000000',
+                showlegend=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Detailed table
+            st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Load papers first to see statistics")
+
+# Tab 3: Semantic Search
+with tab3:
+    st.header("Semantic Search Across All Papers")
+    
+    search_query = st.text_input("Enter your search query:", placeholder="e.g., attention mechanism, transformer architecture, BERT pretraining...")
+    
+    if search_query:
+        with st.spinner("Searching through all papers..."):
+            results = st.session_state.rag.retrieve_similar_chunks(search_query, n_results=10)
+            
+            if results:
+                st.success(f"Found {len(results)} relevant passages")
+                
+                for i, result in enumerate(results):
+                    paper_name = result['metadata'].get('paper_name', 'Unknown')
+                    relevance = 1 - result['distance']
+                    with st.expander(f"{paper_name} — Relevance: {relevance:.1%}"):
+                        st.write(result['text'])
+                        chunk_idx = result['metadata'].get('chunk_index', 0) + 1
+                        total_chunks = result['metadata'].get('total_chunks', 0)
+                        st.caption(f"Chunk {chunk_idx} of {total_chunks}")
+            else:
+                st.info("No results found. Try a different query.")
+
+# Tab 4: Common Themes
+with tab4:
+    st.header("Common Themes Across Papers")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    selected_for_themes = st.multiselect(
+        "Select papers to analyze for common themes",
+        options=all_papers,
+        default=all_papers
+    )
+    
+    if selected_for_themes and st.button("Discover Common Themes", type="primary", use_container_width=True):
+        with st.spinner("Analyzing papers to find common themes..."):
+            themes = st.session_state.rag.find_common_themes(selected_for_themes, top_k=12)
+            
+            st.subheader("Top Common Themes")
+            
+            # Display themes in a beautiful grid
+            cols = st.columns(3)
+            for i, theme in enumerate(themes):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="theme-item">
+                        {theme}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# Blue Footer
+st.markdown("""
+<div class="footer">
+    <p>Multi Research Paper Comparison System | Powered by Sentence Transformers + ChromaDB</p>
+    <p style="font-size: 0.9rem;">Intelligent research paper analysis with semantic understanding</p>
+</div>
+""", unsafe_allow_html=True)
+EOFcat > app.py << 'EOF'
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from document_processor import DocumentProcessor
+from rag_engine import MultiPaperRAG
+import os
+import time
+
+# Page config
+st.set_page_config(
+    page_title="Multi Research Paper Comparison",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS with COMPLETELY SEPARATE themes
+st.markdown("""
+<style>
+    /* ===== DARK THEME - COMPLETELY UNTOUCHED ===== */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #1e293b;
+            --text-primary: #ffffff;
+            --text-secondary: #f1f5f9;
+            --text-light: #cbd5e1;
+            --border-soft: #334155;
+            --primary: #4361ee;
+            --primary-light: #4895ef;
+            --primary-soft: #4cc9f0;
+            --secondary: #3f37c9;
+            --accent: #7209b7;
+            --success: #059669;
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            --gradient-2: linear-gradient(135deg, #3a0ca3 0%, #4361ee 50%, #4895ef 100%);
+            --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .stApp {
+            background: var(--bg-main) !important;
+        }
+        
+        .main-header h1 {
+            color: white !important;
+        }
+        
+        h1, h2, h3, h4, h5, h6, p, li, span, div,
+        .stMarkdown, .stText, label,
+        .stTextInput label, .stTextArea label, 
+        .stMultiSelect label, .stFileUploader label {
+            color: var(--text-primary) !important;
+        }
+        
+        .stTextInput input, .stTextArea textarea {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stFileUploader > div {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        section[data-testid="stSidebar"] {
+            background: var(--bg-sidebar) !important;
+        }
+        
+        .streamlit-expanderHeader {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .dataframe {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stAlert {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .metric-card {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .theme-item {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .footer p {
+            color: white !important;
+        }
+    }
+    
+    /* ===== LIGHT THEME - BRAND NEW, COMPLETELY SEPARATE ===== */
+    @media (prefers-color-scheme: light) {
+        /* Main app background - pure white */
+        .stApp {
+            background: #ffffff !important;
+        }
+        
+        /* ALL text black */
+        * {
+            color: #000000 !important;
+        }
+        
+        /* Override for elements that need to stay white */
+        .stButton button, 
+        .stButton button *,
+        .dataframe th,
+        .dataframe th *,
+        .stTabs [aria-selected="true"],
+        .stTabs [aria-selected="true"] *,
+        .main-header h1,
+        .main-header p,
+        .main-header *,
+        .footer p,
+        .footer * {
+            color: white !important;
+        }
+        
+        /* Main content background - white */
+        .main, .block-container {
+            background: #ffffff !important;
+        }
+        
+        /* Sidebar - light gray background */
+        section[data-testid="stSidebar"] {
+            background: #f8fafc !important;
+        }
+        
+        section[data-testid="stSidebar"] > div {
+            background: #f8fafc !important;
+        }
+        
+        /* Sidebar text - black */
+        section[data-testid="stSidebar"] * {
+            color: #000000 !important;
+        }
+        
+        /* Headers */
+        h2 {
+            color: #000000 !important;
+            font-weight: 600 !important;
+            font-size: 2rem !important;
+            margin: 1.5rem 0 1rem 0 !important;
+            position: relative;
+        }
+        
+        h2:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            border-radius: 2px;
+        }
+        
+        /* Input fields */
+        .stTextInput input, .stTextArea textarea {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 1rem !important;
+        }
+        
+        .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+            color: #9ca3af !important;
+        }
+        
+        /* Multi-select */
+        .stMultiSelect div[data-baseweb="select"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] span {
+            color: #000000 !important;
+        }
+        
+        /* File uploader */
+        .stFileUploader > div {
+            background: #ffffff !important;
+            border: 1px dashed #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] {
+            background: #ffffff !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] p {
+            color: #6b7280 !important;
+        }
+        
+        .stFileUploader button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Uploaded files */
+        .stFileUploader [data-testid="stFileUploaderFile"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderFile"] span {
+            color: #000000 !important;
+        }
+        
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .streamlit-expanderContent {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem !important;
+        }
+        
+        /* Dataframe */
+        .dataframe {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            overflow: hidden;
+        }
+        
+        .dataframe th {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            padding: 0.75rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .dataframe td {
+            color: #000000 !important;
+            border-bottom: 1px solid #d1d5db !important;
+            padding: 0.75rem !important;
+        }
+        
+        /* Alerts */
+        .stAlert {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-left: 4px solid #4361ee !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+        }
+        
+        .stAlert p {
+            color: #000000 !important;
+        }
+        
+        .stSuccess {
+            border-left-color: #059669 !important;
+        }
+        
+        .stWarning {
+            border-left-color: #f59e0b !important;
+        }
+        
+        .stInfo {
+            border-left-color: #4361ee !important;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 50px !important;
+            padding: 0.25rem;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #4b5563 !important;
+            font-weight: 500 !important;
+            padding: 0.5rem 1.5rem !important;
+            border-radius: 50px !important;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .metric-card h3 {
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            color: #4361ee !important;
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Theme items */
+        .theme-item {
+            background: #ffffff !important;
+            color: #4361ee !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .theme-item:hover {
+            border-color: #4361ee !important;
+            box-shadow: 0 2px 8px rgba(67, 97, 238, 0.1) !important;
+        }
+        
+        /* Dropdowns */
+        div[role="listbox"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        li[role="option"] {
+            color: #000000 !important;
+            background: #ffffff !important;
+        }
+        
+        li[role="option"]:hover {
+            background: #f3f4f6 !important;
+        }
+        
+        /* Selected tags */
+        span[data-baseweb="tag"] {
+            background: #eef2ff !important;
+            color: #4361ee !important;
+            border: none !important;
+            border-radius: 50px !important;
+        }
+        
+        /* Code blocks */
+        .stCode {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100%;
+        }
+        
+        /* Progress bar */
+        .stProgress > div {
+            background: #e2e8f0 !important;
+        }
+        
+        .stProgress > div > div {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+        }
+    }
+    
+    /* ===== GLOBAL STYLES (shared) ===== */
+    .main-header {
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        padding: 3rem 2rem;
+        border-radius: 30px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 50%);
+        animation: rotate 20s linear infinite;
+    }
+    
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .main-header h1 {
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 2.8rem !important;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.95) !important;
+        font-size: 1.3rem !important;
+        font-weight: 300;
+        max-width: 700px;
+        margin: 0 auto;
+        position: relative;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        color: white !important;
+        border-top: none;
+        margin-top: 3rem;
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        border-radius: 30px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    }
+    
+    .footer p {
+        color: white !important;
+        font-size: 0.95rem;
+    }
+    
+    .footer p:last-child {
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-size: 0.9rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'rag' not in st.session_state:
+    with st.spinner("Loading RAG engine (first time only)..."):
+        st.session_state.rag = MultiPaperRAG()
+if 'processor' not in st.session_state:
+    st.session_state.processor = DocumentProcessor()
+if 'papers_loaded' not in st.session_state:
+    st.session_state.papers_loaded = False
+
+# Beautiful header with animation
+st.markdown("""
+<div class="main-header">
+    <h1>Multi Research Paper Comparison</h1>
+    <p>Compare, analyze, and understand multiple research papers with AI-powered semantic search</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar
+with st.sidebar:
+    st.markdown("## Paper Management")
+    
+    # Create papers folder if it doesn't exist
+    if not os.path.exists("papers"):
+        os.makedirs("papers")
+        st.info("Created 'papers' folder. Add your PDFs there.")
+    
+    # Show folder path
+    st.code("Place PDFs in: " + os.path.abspath("papers"))
+    
+    # Upload files directly
+    uploaded_files = st.file_uploader(
+        "Upload PDFs here:",
+        type=['pdf'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Save uploaded file
+            filepath = os.path.join("papers", uploaded_file.name)
+            with open(filepath, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"Uploaded: {uploaded_file.name}")
+    
+    # Load papers button
+    if st.button("Load/Reload All Papers", type="primary", use_container_width=True):
+        with st.spinner("Processing papers..."):
+            # Process all PDFs
+            papers = st.session_state.processor.process_papers_folder("papers")
+            
+            if papers:
+                progress_bar = st.progress(0)
+                for i, (filename, text, metadata) in enumerate(papers):
+                    # Add to RAG
+                    num_chunks = st.session_state.rag.add_paper(
+                        text, 
+                        filename, 
+                        metadata
+                    )
+                    progress_bar.progress((i + 1) / len(papers))
+                
+                st.session_state.papers_loaded = True
+                st.success(f"Loaded {len(papers)} papers successfully!")
+            else:
+                st.warning("No PDFs found in the papers folder")
+    
+    # Show loaded papers
+    st.markdown("---")
+    st.markdown("### Loaded Papers")
+    all_papers = st.session_state.rag.get_all_papers()
+    if all_papers:
+        for paper in all_papers:
+            st.markdown(f"• {paper}")
+    else:
+        st.info("No papers loaded yet")
+
+# Main content area
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Compare Papers", 
+    "Paper Statistics", 
+    "Semantic Search",
+    "Common Themes"
+])
+
+# Tab 1: Compare Papers
+with tab1:
+    st.header("Compare Papers")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        query = st.text_area(
+            "What would you like to compare?",
+            placeholder="e.g., Compare the methodology used in these papers, or analyze the differences in their approaches...",
+            height=120
+        )
+    
+    with col2:
+        all_papers = st.session_state.rag.get_all_papers()
+        selected_papers = st.multiselect(
+            "Select papers to compare",
+            options=all_papers,
+            default=all_papers[:2] if len(all_papers) >= 2 else all_papers
+        )
+    
+    if st.button("Compare Papers", type="primary", use_container_width=True):
+        if query and selected_papers:
+            with st.spinner("Analyzing and comparing papers..."):
+                comparison = st.session_state.rag.compare_papers(query, selected_papers)
+                
+                # Display results
+                st.subheader("Comparison Results")
+                
+                # Create comparison table
+                data = []
+                for paper, details in comparison['papers'].items():
+                    data.append({
+                        'Paper': paper,
+                        'Relevant Sections': details['relevant_chunks'],
+                        'Relevance Score': f"{1 - details['avg_relevance']:.2%}" if details['avg_relevance'] < 1 else "N/A"
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+                
+                # Show top passages from each paper
+                st.subheader("Key Passages")
+                
+                cols = st.columns(len(selected_papers))
+                for i, (paper, details) in enumerate(comparison['papers'].items()):
+                    with cols[i]:
+                        st.markdown(f"**{paper}**")
+                        for j, passage in enumerate(details['top_passages'][:2]):
+                            with st.expander(f"Passage {j+1}"):
+                                st.write(passage[:400] + "..." if len(passage) > 400 else passage)
+        else:
+            st.warning("Please enter a query and select papers to compare")
+
+# Tab 2: Paper Statistics
+with tab2:
+    st.header("Paper Statistics")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    
+    if all_papers:
+        stats = []
+        for paper in all_papers:
+            paper_stats = st.session_state.rag.get_paper_summary_stats(paper)
+            if paper_stats:
+                stats.append(paper_stats)
+        
+        if stats:
+            df = pd.DataFrame(stats)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Papers</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(len(df)), unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Avg Chunks per Paper</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(int(df['num_chunks'].mean())), unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Words</h3>
+                    <div class="metric-value">{:,}</div>
+                </div>
+                """.format(int(df['total_words'].sum())), unsafe_allow_html=True)
+            
+            # Bar chart
+            fig = px.bar(
+                df, 
+                x='paper', 
+                y='num_chunks',
+                title="Number of Chunks per Paper",
+                labels={'paper': 'Paper', 'num_chunks': 'Number of Chunks'},
+                color_discrete_sequence=['#4361ee']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#000000',
+                title_font_size=20,
+                title_font_color='#000000',
+                showlegend=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Detailed table
+            st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Load papers first to see statistics")
+
+# Tab 3: Semantic Search
+with tab3:
+    st.header("Semantic Search Across All Papers")
+    
+    search_query = st.text_input("Enter your search query:", placeholder="e.g., attention mechanism, transformer architecture, BERT pretraining...")
+    
+    if search_query:
+        with st.spinner("Searching through all papers..."):
+            results = st.session_state.rag.retrieve_similar_chunks(search_query, n_results=10)
+            
+            if results:
+                st.success(f"Found {len(results)} relevant passages")
+                
+                for i, result in enumerate(results):
+                    paper_name = result['metadata'].get('paper_name', 'Unknown')
+                    relevance = 1 - result['distance']
+                    with st.expander(f"{paper_name} — Relevance: {relevance:.1%}"):
+                        st.write(result['text'])
+                        chunk_idx = result['metadata'].get('chunk_index', 0) + 1
+                        total_chunks = result['metadata'].get('total_chunks', 0)
+                        st.caption(f"Chunk {chunk_idx} of {total_chunks}")
+            else:
+                st.info("No results found. Try a different query.")
+
+# Tab 4: Common Themes
+with tab4:
+    st.header("Common Themes Across Papers")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    selected_for_themes = st.multiselect(
+        "Select papers to analyze for common themes",
+        options=all_papers,
+        default=all_papers
+    )
+    
+    if selected_for_themes and st.button("Discover Common Themes", type="primary", use_container_width=True):
+        with st.spinner("Analyzing papers to find common themes..."):
+            themes = st.session_state.rag.find_common_themes(selected_for_themes, top_k=12)
+            
+            st.subheader("Top Common Themes")
+            
+            # Display themes in a beautiful grid
+            cols = st.columns(3)
+            for i, theme in enumerate(themes):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="theme-item">
+                        {theme}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# Blue Footer
+st.markdown("""
+<div class="footer">
+    <p>Multi Research Paper Comparison System | Powered by Sentence Transformers + ChromaDB</p>
+    <p style="font-size: 0.9rem;">Intelligent research paper analysis with semantic understanding</p>
+</div>
+""", unsafe_allow_html=True)
+EOFcat > app.py << 'EOF'
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from document_processor import DocumentProcessor
+from rag_engine import MultiPaperRAG
+import os
+import time
+
+# Page config
+st.set_page_config(
+    page_title="Multi Research Paper Comparison",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS with COMPLETELY SEPARATE themes
+st.markdown("""
+<style>
+    /* ===== DARK THEME - COMPLETELY UNTOUCHED ===== */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #1e293b;
+            --text-primary: #ffffff;
+            --text-secondary: #f1f5f9;
+            --text-light: #cbd5e1;
+            --border-soft: #334155;
+            --primary: #4361ee;
+            --primary-light: #4895ef;
+            --primary-soft: #4cc9f0;
+            --secondary: #3f37c9;
+            --accent: #7209b7;
+            --success: #059669;
+            --warning: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            --gradient-2: linear-gradient(135deg, #3a0ca3 0%, #4361ee 50%, #4895ef 100%);
+            --shadow-sm: 0 4px 6px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .stApp {
+            background: var(--bg-main) !important;
+        }
+        
+        .main-header h1 {
+            color: white !important;
+        }
+        
+        h1, h2, h3, h4, h5, h6, p, li, span, div,
+        .stMarkdown, .stText, label,
+        .stTextInput label, .stTextArea label, 
+        .stMultiSelect label, .stFileUploader label {
+            color: var(--text-primary) !important;
+        }
+        
+        .stTextInput input, .stTextArea textarea {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .stFileUploader > div {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        section[data-testid="stSidebar"] {
+            background: var(--bg-sidebar) !important;
+        }
+        
+        .streamlit-expanderHeader {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .dataframe {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stAlert {
+            background: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .metric-card {
+            background: var(--bg-card) !important;
+            border: 1px solid var(--border-soft) !important;
+        }
+        
+        .theme-item {
+            background: var(--bg-card) !important;
+            border: 2px solid var(--border-soft) !important;
+        }
+        
+        .footer p {
+            color: white !important;
+        }
+    }
+    
+    /* ===== LIGHT THEME - BRAND NEW, COMPLETELY SEPARATE ===== */
+    @media (prefers-color-scheme: light) {
+        /* Main app background - pure white */
+        .stApp {
+            background: #ffffff !important;
+        }
+        
+        /* ALL text black */
+        * {
+            color: #000000 !important;
+        }
+        
+        /* Override for elements that need to stay white */
+        .stButton button, 
+        .stButton button *,
+        .dataframe th,
+        .dataframe th *,
+        .stTabs [aria-selected="true"],
+        .stTabs [aria-selected="true"] *,
+        .main-header h1,
+        .main-header p,
+        .main-header *,
+        .footer p,
+        .footer * {
+            color: white !important;
+        }
+        
+        /* Main content background - white */
+        .main, .block-container {
+            background: #ffffff !important;
+        }
+        
+        /* Sidebar - light gray background */
+        section[data-testid="stSidebar"] {
+            background: #f8fafc !important;
+        }
+        
+        section[data-testid="stSidebar"] > div {
+            background: #f8fafc !important;
+        }
+        
+        /* Sidebar text - black */
+        section[data-testid="stSidebar"] * {
+            color: #000000 !important;
+        }
+        
+        /* Headers */
+        h2 {
+            color: #000000 !important;
+            font-weight: 600 !important;
+            font-size: 2rem !important;
+            margin: 1.5rem 0 1rem 0 !important;
+            position: relative;
+        }
+        
+        h2:after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+            border-radius: 2px;
+        }
+        
+        /* Input fields */
+        .stTextInput input, .stTextArea textarea {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 1rem !important;
+        }
+        
+        .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+            color: #9ca3af !important;
+        }
+        
+        /* Multi-select */
+        .stMultiSelect div[data-baseweb="select"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stMultiSelect div[data-baseweb="select"] span {
+            color: #000000 !important;
+        }
+        
+        /* File uploader */
+        .stFileUploader > div {
+            background: #ffffff !important;
+            border: 1px dashed #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] {
+            background: #ffffff !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderDropzone"] p {
+            color: #6b7280 !important;
+        }
+        
+        .stFileUploader button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Uploaded files */
+        .stFileUploader [data-testid="stFileUploaderFile"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        .stFileUploader [data-testid="stFileUploaderFile"] span {
+            color: #000000 !important;
+        }
+        
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .streamlit-expanderContent {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 1.5rem !important;
+        }
+        
+        /* Dataframe */
+        .dataframe {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            overflow: hidden;
+        }
+        
+        .dataframe th {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            padding: 0.75rem !important;
+            font-weight: 600 !important;
+        }
+        
+        .dataframe td {
+            color: #000000 !important;
+            border-bottom: 1px solid #d1d5db !important;
+            padding: 0.75rem !important;
+        }
+        
+        /* Alerts */
+        .stAlert {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-left: 4px solid #4361ee !important;
+            border-radius: 8px !important;
+            padding: 1rem !important;
+        }
+        
+        .stAlert p {
+            color: #000000 !important;
+        }
+        
+        .stSuccess {
+            border-left-color: #059669 !important;
+        }
+        
+        .stWarning {
+            border-left-color: #f59e0b !important;
+        }
+        
+        .stInfo {
+            border-left-color: #4361ee !important;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 50px !important;
+            padding: 0.25rem;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            color: #4b5563 !important;
+            font-weight: 500 !important;
+            padding: 0.5rem 1.5rem !important;
+            border-radius: 50px !important;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .metric-card h3 {
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            color: #4361ee !important;
+            font-size: 2rem !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Theme items */
+        .theme-item {
+            background: #ffffff !important;
+            color: #4361ee !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+        }
+        
+        .theme-item:hover {
+            border-color: #4361ee !important;
+            box-shadow: 0 2px 8px rgba(67, 97, 238, 0.1) !important;
+        }
+        
+        /* Dropdowns */
+        div[role="listbox"] {
+            background: #ffffff !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        li[role="option"] {
+            color: #000000 !important;
+            background: #ffffff !important;
+        }
+        
+        li[role="option"]:hover {
+            background: #f3f4f6 !important;
+        }
+        
+        /* Selected tags */
+        span[data-baseweb="tag"] {
+            background: #eef2ff !important;
+            color: #4361ee !important;
+            border: none !important;
+            border-radius: 50px !important;
+        }
+        
+        /* Code blocks */
+        .stCode {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Buttons */
+        .stButton button {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 0.75rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100%;
+        }
+        
+        /* Progress bar */
+        .stProgress > div {
+            background: #e2e8f0 !important;
+        }
+        
+        .stProgress > div > div {
+            background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%) !important;
+        }
+    }
+    
+    /* ===== GLOBAL STYLES (shared) ===== */
+    .main-header {
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        padding: 3rem 2rem;
+        border-radius: 30px;
+        color: white;
+        text-align: center;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .main-header::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 50%);
+        animation: rotate 20s linear infinite;
+    }
+    
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .main-header h1 {
+        color: white !important;
+        font-weight: 700 !important;
+        font-size: 2.8rem !important;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem !important;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .main-header p {
+        color: rgba(255,255,255,0.95) !important;
+        font-size: 1.3rem !important;
+        font-weight: 300;
+        max-width: 700px;
+        margin: 0 auto;
+        position: relative;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 2rem;
+        color: white !important;
+        border-top: none;
+        margin-top: 3rem;
+        background: linear-gradient(135deg, #4361ee 0%, #4895ef 50%, #4cc9f0 100%);
+        border-radius: 30px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+    }
+    
+    .footer p {
+        color: white !important;
+        font-size: 0.95rem;
+    }
+    
+    .footer p:last-child {
+        color: rgba(255, 255, 255, 0.8) !important;
+        font-size: 0.9rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'rag' not in st.session_state:
+    with st.spinner("Loading RAG engine (first time only)..."):
+        st.session_state.rag = MultiPaperRAG()
+if 'processor' not in st.session_state:
+    st.session_state.processor = DocumentProcessor()
+if 'papers_loaded' not in st.session_state:
+    st.session_state.papers_loaded = False
+
+# Beautiful header with animation
+st.markdown("""
+<div class="main-header">
+    <h1>Multi Research Paper Comparison</h1>
+    <p>Compare, analyze, and understand multiple research papers with AI-powered semantic search</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Sidebar
+with st.sidebar:
+    st.markdown("## Paper Management")
+    
+    # Create papers folder if it doesn't exist
+    if not os.path.exists("papers"):
+        os.makedirs("papers")
+        st.info("Created 'papers' folder. Add your PDFs there.")
+    
+    # Show folder path
+    st.code("Place PDFs in: " + os.path.abspath("papers"))
+    
+    # Upload files directly
+    uploaded_files = st.file_uploader(
+        "Upload PDFs here:",
+        type=['pdf'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            # Save uploaded file
+            filepath = os.path.join("papers", uploaded_file.name)
+            with open(filepath, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"Uploaded: {uploaded_file.name}")
+    
+    # Load papers button
+    if st.button("Load/Reload All Papers", type="primary", use_container_width=True):
+        with st.spinner("Processing papers..."):
+            # Process all PDFs
+            papers = st.session_state.processor.process_papers_folder("papers")
+            
+            if papers:
+                progress_bar = st.progress(0)
+                for i, (filename, text, metadata) in enumerate(papers):
+                    # Add to RAG
+                    num_chunks = st.session_state.rag.add_paper(
+                        text, 
+                        filename, 
+                        metadata
+                    )
+                    progress_bar.progress((i + 1) / len(papers))
+                
+                st.session_state.papers_loaded = True
+                st.success(f"Loaded {len(papers)} papers successfully!")
+            else:
+                st.warning("No PDFs found in the papers folder")
+    
+    # Show loaded papers
+    st.markdown("---")
+    st.markdown("### Loaded Papers")
+    all_papers = st.session_state.rag.get_all_papers()
+    if all_papers:
+        for paper in all_papers:
+            st.markdown(f"• {paper}")
+    else:
+        st.info("No papers loaded yet")
+
+# Main content area
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Compare Papers", 
+    "Paper Statistics", 
+    "Semantic Search",
+    "Common Themes"
+])
+
+# Tab 1: Compare Papers
+with tab1:
+    st.header("Compare Papers")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        query = st.text_area(
+            "What would you like to compare?",
+            placeholder="e.g., Compare the methodology used in these papers, or analyze the differences in their approaches...",
+            height=120
+        )
+    
+    with col2:
+        all_papers = st.session_state.rag.get_all_papers()
+        selected_papers = st.multiselect(
+            "Select papers to compare",
+            options=all_papers,
+            default=all_papers[:2] if len(all_papers) >= 2 else all_papers
+        )
+    
+    if st.button("Compare Papers", type="primary", use_container_width=True):
+        if query and selected_papers:
+            with st.spinner("Analyzing and comparing papers..."):
+                comparison = st.session_state.rag.compare_papers(query, selected_papers)
+                
+                # Display results
+                st.subheader("Comparison Results")
+                
+                # Create comparison table
+                data = []
+                for paper, details in comparison['papers'].items():
+                    data.append({
+                        'Paper': paper,
+                        'Relevant Sections': details['relevant_chunks'],
+                        'Relevance Score': f"{1 - details['avg_relevance']:.2%}" if details['avg_relevance'] < 1 else "N/A"
+                    })
+                
+                df = pd.DataFrame(data)
+                st.dataframe(df, use_container_width=True)
+                
+                # Show top passages from each paper
+                st.subheader("Key Passages")
+                
+                cols = st.columns(len(selected_papers))
+                for i, (paper, details) in enumerate(comparison['papers'].items()):
+                    with cols[i]:
+                        st.markdown(f"**{paper}**")
+                        for j, passage in enumerate(details['top_passages'][:2]):
+                            with st.expander(f"Passage {j+1}"):
+                                st.write(passage[:400] + "..." if len(passage) > 400 else passage)
+        else:
+            st.warning("Please enter a query and select papers to compare")
+
+# Tab 2: Paper Statistics
+with tab2:
+    st.header("Paper Statistics")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    
+    if all_papers:
+        stats = []
+        for paper in all_papers:
+            paper_stats = st.session_state.rag.get_paper_summary_stats(paper)
+            if paper_stats:
+                stats.append(paper_stats)
+        
+        if stats:
+            df = pd.DataFrame(stats)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Papers</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(len(df)), unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Avg Chunks per Paper</h3>
+                    <div class="metric-value">{}</div>
+                </div>
+                """.format(int(df['num_chunks'].mean())), unsafe_allow_html=True)
+            
+            with col3:
+                st.markdown("""
+                <div class="metric-card">
+                    <h3>Total Words</h3>
+                    <div class="metric-value">{:,}</div>
+                </div>
+                """.format(int(df['total_words'].sum())), unsafe_allow_html=True)
+            
+            # Bar chart
+            fig = px.bar(
+                df, 
+                x='paper', 
+                y='num_chunks',
+                title="Number of Chunks per Paper",
+                labels={'paper': 'Paper', 'num_chunks': 'Number of Chunks'},
+                color_discrete_sequence=['#4361ee']
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#000000',
+                title_font_size=20,
+                title_font_color='#000000',
+                showlegend=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Detailed table
+            st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Load papers first to see statistics")
+
+# Tab 3: Semantic Search
+with tab3:
+    st.header("Semantic Search Across All Papers")
+    
+    search_query = st.text_input("Enter your search query:", placeholder="e.g., attention mechanism, transformer architecture, BERT pretraining...")
+    
+    if search_query:
+        with st.spinner("Searching through all papers..."):
+            results = st.session_state.rag.retrieve_similar_chunks(search_query, n_results=10)
+            
+            if results:
+                st.success(f"Found {len(results)} relevant passages")
+                
+                for i, result in enumerate(results):
+                    paper_name = result['metadata'].get('paper_name', 'Unknown')
+                    relevance = 1 - result['distance']
+                    with st.expander(f"{paper_name} — Relevance: {relevance:.1%}"):
+                        st.write(result['text'])
+                        chunk_idx = result['metadata'].get('chunk_index', 0) + 1
+                        total_chunks = result['metadata'].get('total_chunks', 0)
+                        st.caption(f"Chunk {chunk_idx} of {total_chunks}")
+            else:
+                st.info("No results found. Try a different query.")
+
+# Tab 4: Common Themes
+with tab4:
+    st.header("Common Themes Across Papers")
+    
+    all_papers = st.session_state.rag.get_all_papers()
+    selected_for_themes = st.multiselect(
+        "Select papers to analyze for common themes",
+        options=all_papers,
+        default=all_papers
+    )
+    
+    if selected_for_themes and st.button("Discover Common Themes", type="primary", use_container_width=True):
+        with st.spinner("Analyzing papers to find common themes..."):
+            themes = st.session_state.rag.find_common_themes(selected_for_themes, top_k=12)
+            
+            st.subheader("Top Common Themes")
+            
+            # Display themes in a beautiful grid
+            cols = st.columns(3)
+            for i, theme in enumerate(themes):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="theme-item">
+                        {theme}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+# Blue Footer
+st.markdown("""
+<div class="footer">
+    <p>Multi Research Paper Comparison System | Powered by Sentence Transformers + ChromaDB</p>
+    <p style="font-size: 0.9rem;">Intelligent research paper analysis with semantic understanding</p>
+</div>
+""", unsafe_allow_html=True)
