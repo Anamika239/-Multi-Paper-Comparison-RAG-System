@@ -1,6 +1,6 @@
 streamlit
 sentence-transformers
-chromadb
+faiss-cpu
 PyPDF2
 pandas
 plotly
