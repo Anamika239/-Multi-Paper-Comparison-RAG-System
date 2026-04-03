@@ -1,32 +1,54 @@
 import numpy as np
 from sentence_transformers import SentenceTransformer
-import chromadb
-from chromadb.config import Settings
-from typing import List, Dict, Tuple
-import hashlib
+import faiss
+import pickle
 import os
+import hashlib
+from typing import List, Dict
 
 class MultiPaperRAG:
     def __init__(self):
-        """Initialize the RAG system with embedding model and vector store"""
-        print("📚 Loading embedding model...")
+        """Initialize the RAG system with embedding model and FAISS index"""
         self.model = SentenceTransformer('all-MiniLM-L6-v2')
         
-        # Create directory for persistence
-        persist_dir = "./chroma_db"
-        os.makedirs(persist_dir, exist_ok=True)
+        self.persist_dir = "./chroma_db"
+        os.makedirs(self.persist_dir, exist_ok=True)
         
-        # Initialize ChromaDB with persistent client
-        self.chroma_client = chromadb.PersistentClient(path=persist_dir)
+        self.dimension = 384
+        self.index = None
+        self.chunks = []
+        self.metadatas = []
         
-        # Create or get collection
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="research_papers",
-            metadata={"hnsw:space": "cosine"}
-        )
+        self._load_data()
         
-        self.papers_metadata = {}
+    def _save_data(self):
+        """Save index and metadata to disk"""
+        if self.index is not None:
+            faiss.write_index(self.index, os.path.join(self.persist_dir, "index.faiss"))
         
+        with open(os.path.join(self.persist_dir, "chunks.pkl"), "wb") as f:
+            pickle.dump(self.chunks, f)
+        with open(os.path.join(self.persist_dir, "metadatas.pkl"), "wb") as f:
+            pickle.dump(self.metadatas, f)
+    
+    def _load_data(self):
+        """Load existing index and metadata from disk"""
+        index_path = os.path.join(self.persist_dir, "index.faiss")
+        chunks_path = os.path.join(self.persist_dir, "chunks.pkl")
+        metadatas_path = os.path.join(self.persist_dir, "metadatas.pkl")
+        
+        if os.path.exists(index_path):
+            self.index = faiss.read_index(index_path)
+        else:
+            self.index = faiss.IndexFlatL2(self.dimension)
+        
+        if os.path.exists(chunks_path):
+            with open(chunks_path, "rb") as f:
+                self.chunks = pickle.load(f)
+        if os.path.exists(metadatas_path):
+            with open(metadatas_path, "rb") as f:
+                self.metadatas = pickle.load(f)
+    
     def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
         """Split text into overlapping chunks"""
         words = text.split()
@@ -34,30 +56,27 @@ class MultiPaperRAG:
         
         for i in range(0, len(words), chunk_size - overlap):
             chunk = ' '.join(words[i:i + chunk_size])
-            if len(chunk.split()) > 100:  # Minimum chunk size
+            if len(chunk.split()) > 50:
                 chunks.append(chunk)
         
         return chunks
     
     def add_paper(self, text: str, paper_name: str, metadata: Dict = None):
         """Add a paper to the vector store"""
-        # Create chunks
         chunks = self.chunk_text(text)
         
         if not chunks:
-            print(f"⚠️ No chunks created for {paper_name}")
             return 0
         
-        # Generate embeddings
-        embeddings = self.model.encode(chunks).tolist()
+        embeddings = self.model.encode(chunks).astype('float32')
         
-        # Create IDs
-        ids = [f"{paper_name}_{i}_{hashlib.md5(chunk.encode()).hexdigest()[:8]}" 
-               for i, chunk in enumerate(chunks)]
+        if self.index is None:
+            self.index = faiss.IndexFlatL2(self.dimension)
         
-        # Prepare metadata for each chunk
-        metadatas = []
+        self.index.add(embeddings)
+        
         for i, chunk in enumerate(chunks):
+            self.chunks.append(chunk)
             chunk_meta = {
                 "paper_name": paper_name,
                 "chunk_index": i,
@@ -65,71 +84,59 @@ class MultiPaperRAG:
             }
             if metadata:
                 chunk_meta.update(metadata)
-            metadatas.append(chunk_meta)
+            self.metadatas.append(chunk_meta)
         
-        # Add to ChromaDB
-        self.collection.add(
-            embeddings=embeddings,
-            documents=chunks,
-            metadatas=metadatas,
-            ids=ids
-        )
-        
-        # Store paper metadata
-        self.papers_metadata[paper_name] = {
-            'num_chunks': len(chunks),
-            'metadata': metadata
-        }
-        
-        print(f"✅ Added {len(chunks)} chunks for {paper_name}")
+        self._save_data()
         return len(chunks)
     
     def remove_paper(self, paper_name: str):
-        """Delete all chunks belonging to a specific paper from the collection."""
-        try:
-            # Get all IDs for chunks with this paper_name
-            results = self.collection.get(where={"paper_name": paper_name})
-            if results and results['ids']:
-                self.collection.delete(ids=results['ids'])
-                # Also remove from papers_metadata
-                if paper_name in self.papers_metadata:
-                    del self.papers_metadata[paper_name]
-                return True
-        except Exception as e:
-            print(f"Error removing paper {paper_name}: {e}")
+        """Delete all chunks belonging to a specific paper"""
+        indices_to_remove = []
+        for i, meta in enumerate(self.metadatas):
+            if meta.get('paper_name') == paper_name:
+                indices_to_remove.append(i)
+        
+        if not indices_to_remove:
             return False
-        return False
+        
+        for idx in sorted(indices_to_remove, reverse=True):
+            del self.chunks[idx]
+            del self.metadatas[idx]
+        
+        if self.chunks:
+            embeddings = self.model.encode(self.chunks).astype('float32')
+            self.index = faiss.IndexFlatL2(self.dimension)
+            self.index.add(embeddings)
+        else:
+            self.index = faiss.IndexFlatL2(self.dimension)
+        
+        self._save_data()
+        return True
     
     def retrieve_similar_chunks(self, query: str, n_results: int = 10) -> List[Dict]:
         """Retrieve most relevant chunks for a query"""
-        # Generate query embedding
-        query_embedding = self.model.encode([query]).tolist()
+        if self.index is None or self.index.ntotal == 0:
+            return []
         
-        # Search
-        results = self.collection.query(
-            query_embeddings=query_embedding,
-            n_results=n_results
-        )
+        query_embedding = self.model.encode([query]).astype('float32')
+        distances, indices = self.index.search(query_embedding, min(n_results, self.index.ntotal))
         
-        # Format results
         retrieved = []
-        if results['ids'] and len(results['ids'][0]) > 0:
-            for i in range(len(results['ids'][0])):
+        for i, idx in enumerate(indices[0]):
+            if idx < len(self.chunks):
                 retrieved.append({
-                    'id': results['ids'][0][i],
-                    'text': results['documents'][0][i],
-                    'metadata': results['metadatas'][0][i] if results['metadatas'] else {},
-                    'distance': results['distances'][0][i] if results['distances'] else 0
+                    'id': f"chunk_{idx}",
+                    'text': self.chunks[idx],
+                    'metadata': self.metadatas[idx],
+                    'distance': float(distances[0][i])
                 })
         
         return retrieved
     
     def compare_papers(self, query: str, papers: List[str]) -> Dict:
         """Compare multiple papers on a specific aspect"""
-        # Retrieve relevant chunks
         all_chunks = self.retrieve_similar_chunks(query, n_results=20)
         
-        # Group by paper
         paper_chunks = {}
         for chunk in all_chunks:
             paper = chunk['metadata'].get('paper_name', 'Unknown')
@@ -138,19 +145,10 @@ class MultiPaperRAG:
                     paper_chunks[paper] = []
                 paper_chunks[paper].append(chunk)
         
-        # Generate comparison
-        comparison = {
-            'query': query,
-            'papers': {},
-            'similarities': [],
-            'differences': []
-        }
+        comparison = {'query': query, 'papers': {}}
         
         for paper, chunks in paper_chunks.items():
-            # Sort by relevance (lower distance = more relevant)
             chunks.sort(key=lambda x: x['distance'])
-            
-            # Get top chunks
             top_chunks = chunks[:3]
             top_texts = [c['text'] for c in top_chunks]
             
@@ -164,60 +162,47 @@ class MultiPaperRAG:
     
     def find_common_themes(self, papers: List[str], top_k: int = 5) -> List[str]:
         """Find common themes across papers"""
-        # Get all chunks from these papers
         all_text = []
-        for paper in papers:
-            results = self.collection.get(
-                where={"paper_name": paper}
-            )
-            if results and results['documents']:
-                all_text.extend(results['documents'])
+        for i, meta in enumerate(self.metadatas):
+            if meta.get('paper_name') in papers:
+                all_text.append(self.chunks[i])
         
         if len(all_text) < 3:
             return ["Not enough text to analyze themes"]
         
-        # Use TF-IDF to find common themes
         from sklearn.feature_extraction.text import TfidfVectorizer
-        
         vectorizer = TfidfVectorizer(max_features=100, stop_words='english')
         tfidf_matrix = vectorizer.fit_transform(all_text)
         
-        # Get top terms
         feature_names = vectorizer.get_feature_names_out()
         scores = np.array(tfidf_matrix.sum(axis=0)).flatten()
         top_indices = scores.argsort()[-top_k:][::-1]
         
-        common_themes = [feature_names[i] for i in top_indices]
-        return common_themes
+        return [feature_names[i] for i in top_indices]
     
     def get_paper_summary_stats(self, paper: str) -> Dict:
         """Get summary statistics for a paper"""
-        results = self.collection.get(
-            where={"paper_name": paper}
-        )
+        chunks_for_paper = []
+        for i, meta in enumerate(self.metadatas):
+            if meta.get('paper_name') == paper:
+                chunks_for_paper.append(self.chunks[i])
         
-        if not results or not results['documents']:
+        if not chunks_for_paper:
             return {}
         
-        # Calculate average chunk length
-        chunk_lengths = [len(doc.split()) for doc in results['documents']]
+        chunk_lengths = [len(chunk.split()) for chunk in chunks_for_paper]
         
         return {
             'paper': paper,
-            'num_chunks': len(results['documents']),
+            'num_chunks': len(chunks_for_paper),
             'avg_chunk_length': float(np.mean(chunk_lengths)) if chunk_lengths else 0,
             'total_words': int(np.sum(chunk_lengths)) if chunk_lengths else 0
         }
     
     def get_all_papers(self) -> List[str]:
         """Get list of all papers in the database"""
-        try:
-            results = self.collection.get()
-            papers = set()
-            if results and results['metadatas']:
-                for meta in results['metadatas']:
-                    if meta and 'paper_name' in meta:
-                        papers.add(meta['paper_name'])
-            return list(papers)
-        except:
-            return []
+        papers = set()
+        for meta in self.metadatas:
+            if meta and 'paper_name' in meta:
+                papers.add(meta['paper_name'])
+        return list(papers)
